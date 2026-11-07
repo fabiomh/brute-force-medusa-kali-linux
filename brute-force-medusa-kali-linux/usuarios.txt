@@ -1,6 +1,0 @@
-msfadmin
-admin
-root
-user
-service
-postgres
