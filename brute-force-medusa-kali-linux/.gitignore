@@ -1,0 +1,33 @@
+# === Proteção: nunca versionar dados sensíveis ou evidências brutas ===
+
+# Credenciais, segredos e variáveis de ambiente
+*.env
+.env*
+*secret*
+*senha_real*
+*credenciais*
+id_rsa
+id_rsa.*
+*.pem
+*.key
+
+# Saídas brutas de scans/ataques (podem conter alvos/IPs reais)
+*.nmap
+*.gnmap
+*.xml
+scan_*.txt
+output_*.txt
+captura_*.txt
+hashes.txt
+hash_real*
+
+# Wordlists pesadas (suba só as de exemplo, não bases enormes)
+rockyou.txt
+*.lst
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
